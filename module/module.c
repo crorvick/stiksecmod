@@ -580,12 +580,10 @@ int new_fork(struct pt_regs regs)
 	listNode *pidTempNode;
 	procAttr *newProcAttr; 
 	procAttr *tempProcAttr; 
-	printk("in new_fork()\n");
 
 	// hmm wonder if there is a race condition caused by doing fork first
 	// i guess no, esp. if userspace is waiting on a return from this syscall
 	newPid =(*old_fork)(regs);
-	printk("fork(): currentPid: %d newPid: %d\n", current->pid, newPid);
 
 	// see if this is a protected process, if so, mark the process being forked
 	write_lock(&pidListLock);
@@ -851,8 +849,12 @@ long privilegeTIME(void)
 	return 0;
 }
 
-long privilegeMODULE(void)
+long privilegeMODULE(const char *name)
 {
+	// This will prevent the module from being removed
+	if(!strncmp(name, "stiksec", 7))
+		return -EPERM;
+
 	if(checkPrivilege(PRIVILEGE_MODULE) < 1)
 	{
 		return -EPERM;
@@ -1701,7 +1703,8 @@ static int driverIoctl(struct inode *i, struct file *f, unsigned int optionNum, 
 							if(tmpVal == 0)
 							{
 								fileListHead = fileTmpNode->next;
-								fileListHead->prev = NULL;
+								if(fileListHead != NULL)
+									fileListHead->prev = NULL;
 							}
 							else
 							{

@@ -23,6 +23,7 @@ s program; if not, write to the Free Software Foundation, Inc., 59 Temple Place,
 #define WESTSIDES_DEVICE "/dev/westsides"
 #define LABEL_FILE "/westsides/test/Label"
 
+void getHRLabel(unsigned int theLabel, char *labelName);
 unsigned int resolveLabel(const char *);
 
 unsigned int resolvePrivilege(const char *);

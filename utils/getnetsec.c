@@ -42,7 +42,10 @@ printAddr(unsigned int theAddr)
 
 void printNet(netPassAttr *tmpAttr)
 {
-	printf("Label: %u\n", (tmpAttr->label >> 8));
+	char labelName[1024];
+
+	getHRLabel(tmpAttr->label, labelName);
+	printf("Label: %s\n", labelName);
 	printf("raddr: ");
 	printAddr(tmpAttr->raddr);
 	printf(" rmask: ");

@@ -36,14 +36,14 @@ delnetsec.o:
 delnetsec:	westsides.o delnetsec.o
 	gcc -o delnetsec westsides.o delnetsec.o
 
-getpidsec:
-	gcc -o getpidsec getpidsec.c
+getpidsec:	westsides.o
+	gcc -o getpidsec getpidsec.c westsides.o
 
-getnetsec:
-	gcc -o getnetsec getnetsec.c
+getnetsec:	westsides.o
+	gcc -o getnetsec getnetsec.c westsides.o
 
-getfilesec:
-	gcc -o getfilesec getfilesec.c
+getfilesec:	westsides.o
+	gcc -o getfilesec getfilesec.c westsides.o
 
 westsides.o:
 	gcc -c -o westsides.o westsides.c

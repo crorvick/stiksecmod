@@ -32,8 +32,11 @@ void usage(void)
 
 void printFile(passFileAttr *theAttr)
 {
+	char labelName[1024];
+
 	printf("%s\n", theAttr->filename);
-	printf("Label: %u", (theAttr->label >> 8));
+	getHRLabel(theAttr->label, labelName);
+	printf("Label: %s  Flags:", labelName);
 	if(theAttr->label & LABEL_READ)
 		printf(" read");
 	if(theAttr->label & LABEL_WRITE)

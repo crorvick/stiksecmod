@@ -18,7 +18,7 @@ s program; if not, write to the Free Software Foundation, Inc., 59 Temple Place,
 #include <stdio.h>
 #include <unistd.h>
 
-#define LABEL_FILE "/westsides/test/Label"
+#define LABEL_FILE "/etc/westsides/Label"
 
 unsigned int resolveLabel(const char *labelText)
 {
@@ -45,6 +45,28 @@ unsigned int resolveLabel(const char *labelText)
 	fclose(myFile);
 
 	return labelNum;
+} 
+
+void getHRLabel(unsigned int theLabel, char *labelName)
+{
+	FILE *myFile;
+	char line[1024];
+	char *tmp, *tmp2;
+	unsigned int label = (theLabel >> 8);
+
+	myFile = fopen(LABEL_FILE, "r");
+	while(fgets(line,1024,myFile) != NULL)
+	{
+		memset(labelName, 0, 1024);
+		tmp = (char *)strtok(line," ");
+		tmp2 = (char *)strtok(NULL," ");
+		if(label == (unsigned int)atoi(tmp2))
+		{
+			strncpy(labelName, tmp, strlen(tmp));
+			break;
+		}
+	}
+	fclose(myFile);
 } 
 
 unsigned int resolvePrivilege(const char *privText)

@@ -35,6 +35,7 @@ int main (int argc, char *argv[])
 	procPass myPass;
 	unsigned int newLabel, newPrivilege = 0;
 	unsigned short myPid;
+	char labelName[1024];
 
 	if(argc < 1)
 	{
@@ -61,7 +62,8 @@ int main (int argc, char *argv[])
 	}
 	close(myFile);
 
-	printf("PID: %d  Label: %u  Privilege: %u\n", myPass.pid, (myPass.label >> 8), myPass.privileges);
+	getHRLabel(myPass.label, labelName);
+	printf("PID: %d  Label: %s  Privilege: %u\n", myPass.pid, labelName, myPass.privileges);
 
 	return 0;
 }

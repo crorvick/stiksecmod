@@ -31,7 +31,7 @@ xHandle russian security rules
 
 Interface
 ---------
--Implement user readable privleges and labels
+xImplement user readable privleges and labels
 xCreate options for deleting security settings
 xImprove setting listing options
 xFinalize listing stuff (network and file)
