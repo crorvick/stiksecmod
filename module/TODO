@@ -1,0 +1,47 @@
+General
+-------
+-Stress test
+-Fix segfault at reboot
+xCleanup memory on driver removal
+xLock lists for reading and writing
+
+Process
+-------
+xHandle signals
+
+Privileges
+----------
+xFind other restricted calls
+xMap privileges accordingly
+xImplement DOE and DOU
+
+Filesystem
+----------
+-Protect created files
+xCheck EXEC for exec()
+xCheck WRITE in dir for links()
+xDouble check attribute copying for links()
+-Consider delete, create, and append label flags
+xTrap creates, unlinks, and other filesystem stuff
+xImplement recursive directory labels
+xrealFileName works
+xFix segfault somewhere around listing file labels
+xFix the ls problem where we can list dirs w/o read permission
+xHandle russian security rules
+
+Interface
+---------
+-Implement user readable privleges and labels
+xCreate options for deleting security settings
+xImprove setting listing options
+xFinalize listing stuff (network and file)
+
+Networking
+----------
+xTrap bind, sendto, and connect
+xDemultiplex the big network syscall?
+xTest networking
+
+Syscalls
+--------
+xHook syscalls without LKM
