@@ -798,7 +798,7 @@ execPrivs:
 	write_unlock(&pidListLock);
 
 execve_return:
-	// I don't like this solution, but these seems to be how other people did it
+	/* I don't like this solution, but these seems to be how other people did it
 	filename = getname((char *) regs.ebx);
 	retVal = PTR_ERR(filename);
 	if (IS_ERR(filename))
@@ -806,7 +806,9 @@ execve_return:
 	retVal = do_execve(filename, (char **) regs.ecx, (char **) regs.edx, &regs);
 	if (retVal == 0)
 		current->ptrace &= ~PT_DTRACE;
-	putname(filename);
+	putname(filename); */
+
+	retVal = 0;
 out:
 	return retVal;
 }
@@ -1850,7 +1852,7 @@ int init_module(void)
 	sec_sys_call_table[SYS_symlink] = 	new_symlink;
 	sec_sys_call_table[SYS_adjtimex] = 	new_adjtimex;
 	sec_sys_call_table[SYS_ptrace] = 	new_ptrace;
-	//sec_sys_call_table[SYS_execve] = 	new_execve;
+	sec_sys_call_table[SYS_execve] = 	new_execve;
 	sec_sys_call_table[SYS_quotactl] = 	new_quotactl;
 	sec_sys_call_table[SYS_mknod] =		new_mknod;
 	sec_sys_call_table[SYS_rename] = 	new_rename;
