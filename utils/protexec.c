@@ -23,6 +23,7 @@ s program; if not, write to the Free Software Foundation, Inc., 59 Temple Place,
 #include <fcntl.h>
 #include "../module/process.h"
 #include "../module/privilege.h"
+#include "../module/label.h"
 #include "westsides.h"
 
 void usage(void)
@@ -35,6 +36,7 @@ int main (int argc, char *argv[])
 	int myFile, good = 0;
 	procPass myPass;
 	unsigned int newLabel, newPrivilege = 0;
+	unsigned int addLabel = 0;
 
 	if(argc < 3)
 	{
@@ -55,8 +57,45 @@ int main (int argc, char *argv[])
 				return -2;
 			}
 			newLabel = resolveLabel(*argv);
+			if(newLabel < 1)
+			{
+				printf("Label not defined.");
+				return -1;
+			}
 			//printf("nL:%d\n",newLabel);
 			good = 1;
+		}
+		else if(!strncmp(*argv, "-r", 2))
+		{
+			addLabel += LABEL_READ;
+		}
+		else if(!strncmp(*argv, "-w", 2))
+		{
+			addLabel += LABEL_WRITE;
+		}
+		else if(!strncmp(*argv, "-d", 2))
+		{
+			addLabel += LABEL_DELETE;
+		}
+		else if(!strncmp(*argv, "-x", 2))
+		{
+			addLabel += LABEL_EXEC;
+		}
+		else if(!strncmp(*argv, "-R", 2))
+		{
+			addLabel += LABEL_RECURSE;
+		}
+		else if(!strncmp(*argv, "-f", 2))
+		{
+			addLabel += LABEL_FUNCTION;
+		}
+		else if(!strncmp(*argv, "-c", 2))
+		{
+			addLabel += LABEL_CREATE;
+		}
+		else if(!strncmp(*argv, "-a", 2))
+		{
+			addLabel += LABEL_APPEND;
 		}
 		else if(!strncmp(*argv, "-p", 2))
 		{
@@ -80,6 +119,7 @@ int main (int argc, char *argv[])
 
 	memset(&myPass, 0, sizeof(myPass));
 	myPass.label = newLabel << 8;
+	myPass.label += addLabel;
 	myPass.privileges = newPrivilege;
 	myPass.pid = getpid();
 	//printf("got here, pid:%d\n", myPass.pid);

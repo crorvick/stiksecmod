@@ -56,6 +56,11 @@ int main (int argc, char *argv[])
 				return -2;
 			}
 			newLabel = resolveLabel(*argv);
+			if(newLabel < 1)
+			{
+				printf("Label not defined.\n");
+				return -1;
+			}
 			//printf("nL:%d\n",newLabel);
 			good = 1;
 		}
@@ -74,6 +79,18 @@ int main (int argc, char *argv[])
 		else if(!strncmp(*argv, "-x", 2))
 		{
 			addLabel += LABEL_EXEC;
+		}
+		else if(!strncmp(*argv, "-a", 2))
+		{
+			addLabel += LABEL_APPEND;
+		}
+		else if(!strncmp(*argv, "-c", 2))
+		{
+			addLabel += LABEL_CREATE;
+		}
+		else if(!strncmp(*argv, "-f", 2))
+		{
+			addLabel += LABEL_FUNCTION;
 		}
 		else if(!strncmp(*argv, "-R", 2))
 		{

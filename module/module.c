@@ -2524,6 +2524,9 @@ int init_module(void)
 	old_nice = (void *)my_sys_call_table[SYS_nice];
 	my_sys_call_table[SYS_nice] = (unsigned int)new_nice;
 
+	old_iopl = (void *)my_sys_call_table[SYS_iopl];
+	my_sys_call_table[SYS_iopl] = (unsigned int)new_iopl;
+
 	//old_sysctl = (void *)my_sys_call_table[SYS_sysctl];
 	//my_sys_call_table[SYS_sysctl] = (unsigned int)new_sysctl;
 

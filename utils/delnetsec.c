@@ -104,6 +104,11 @@ int main (int argc, char *argv[])
 			good = 1;
 			++blockAll;
 			label = resolveLabel(*argv);
+			if(label < 1)
+			{
+				printf("Label not defined.");
+				return -1;
+			}
 		}
 		else if(!strncmp(*argv, "-raddr", 6))
 		{

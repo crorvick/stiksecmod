@@ -79,6 +79,11 @@ int main (int argc, char *argv[])
 
                 	tmp = (char *)strtok(NULL,":");
 			newLabel = resolveLabel(tmp);
+			if(newLabel < 1)
+			{
+				printf("Label %s not defined.  Skipping rule.", tmp);
+				continue;
+			}
 
 			addLabel = 0;
 			tmp = (char *)strtok(NULL,":");

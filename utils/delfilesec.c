@@ -55,6 +55,11 @@ int main (int argc, char *argv[])
 				return -2;
 			}
 			newLabel = resolveLabel(*argv);
+			if(newLabel < 1)
+			{
+				printf("Label not defined.\n");
+				return -1;
+			}
 			//printf("nL:%d\n",newLabel);
 			good = 1;
 		}

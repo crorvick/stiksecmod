@@ -87,6 +87,13 @@ int localNetworkAccess(unsigned int processLabel, struct sockaddr *uservaddr)
 	struct in_addr *tmpSinAddr;
         unsigned int addrRequest;
         unsigned short portRequest;
+	int retVal;
+
+	// handles inverse networking with LABEL_FUNCTION
+	if(processLabel & LABEL_FUNCTION)
+		retVal = 0;
+	else
+		retVal = 1;
 
 	read_lock(&netListLock);
         if((tmpListNode = getListMaskKey(netListHead, processLabel, LABEL_MASK)) != NULL)
@@ -111,18 +118,21 @@ int localNetworkAccess(unsigned int processLabel, struct sockaddr *uservaddr)
                                 if((portRequest >= tmpNetAttr->lport) && (portRequest <= tmpNetAttr->lrange))
                                 {
                                         // okay let it happen
+					// inverse is block this
 					read_unlock(&netListLock);
-                                        return 1;
+                                        return retVal;
                                 }
                         }
                         // not a match this time, check the next netAttr for this label
                         tmpListNode = tmpListNode->next;
                 }
                 // we've got a label, but no address match.  under default mode this is blocked
+		// under inverse this is allowed
 		read_unlock(&netListLock);
-                return 0;
+                return (!retVal);
         }
         // this label is not network restricted
+	// allow under all conditions
 	read_unlock(&netListLock);
         return 1;
 }
@@ -135,6 +145,13 @@ int remoteNetworkAccess(unsigned int processLabel, struct sockaddr *uservaddr)
 	struct in_addr *tmpSinAddr;
 	unsigned int addrRequest;
 	unsigned int portRequest;
+	int retVal;
+
+	// handles inverse networking with LABEL_FUNCTION
+	if(processLabel & LABEL_FUNCTION)
+		retVal = 0;
+	else
+		retVal = 1;
 
 	read_lock(&netListLock);
 	if((tmpListNode = getListMaskKey(netListHead, processLabel, LABEL_MASK)) != NULL)
@@ -158,16 +175,18 @@ int remoteNetworkAccess(unsigned int processLabel, struct sockaddr *uservaddr)
 				if((portRequest >= tmpNetAttr->rport) && (portRequest <= tmpNetAttr->rrange))
 				{
 					// okay let it happen
+					// inverse is deny
 					read_unlock(&netListLock);
-					return 1;
+					return retVal;
 				}
 			}
 			// not a match this time, check the next netAttr for this label
 			tmpListNode = tmpListNode->next;
 		}
 		// we've got a label, but no address match.  under default mode this is blocked
+		// under inverse this mode is allowed
 		read_unlock(&netListLock);
-		return 0;
+		return (!retVal);
 	}
 	// this label is not network restricted
 	read_unlock(&netListLock);
