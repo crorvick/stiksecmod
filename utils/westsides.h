@@ -21,6 +21,7 @@ s program; if not, write to the Free Software Foundation, Inc., 59 Temple Place,
 #endif
 
 #define WESTSIDES_DEVICE "/dev/westsides"
+#define LABEL_FILE "/westsides/test/Label"
 
 unsigned int resolveLabel(const char *);
 
