@@ -46,6 +46,3 @@ Syscalls
 --------
 xHook syscalls without LKM
 
-CVS
----
-Cleanup CVS TREE
