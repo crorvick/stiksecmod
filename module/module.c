@@ -42,8 +42,9 @@ s program; if not, write to the Free Software Foundation, Inc., 59 Temple Place,
 #include <asm/errno.h>
 
 #include "global.c"
-
+#include "syscalls.c"
 #include "util.c"
+
 #ifndef WESTSIDES_LIST_C
 #include "list.c"
 #endif
@@ -77,106 +78,20 @@ static unsigned char nargs[18]={AL(0),AL(3),AL(3),AL(3),AL(2),AL(3),
 MODULE_LICENSE("GPL");
 
 // syscalls
-unsigned int *my_sys_call_table;
-
-// process syscalls
-// i386 specific fork
-int (*old_fork)(struct pt_regs regs);
-int (*old_clone)(struct pt_regs regs);
-int (*old_vfork)(struct pt_regs regs);
-long (*old_exit)(int error_code);
-// i386 specific ptrace
-int (*old_ptrace)(long request, long pid, long addr, long data);
-// i386 spec execve
-int (*old_execve)(struct pt_regs regs);
-
-// privileged syscalls
-// pretty sure ioperm and iopl are i386 specific
-long (*old_setpriority)(int which, int who, int niceval);
-int (*old_ioperm)(unsigned long from, unsigned long num, int turn_on);
-int (*old_iopl)(unsigned long unused);
-long (*old_setregid)(gid_t arg1, gid_t arg2);
-long (*old_setgid)(gid_t arg1);
-long (*old_setreuid)(uid_t arg1, uid_t arg2);
-long (*old_setuid)(uid_t arg1);
-long (*old_setresuid)(uid_t arg1, uid_t arg2, uid_t arg3);
-long (*old_setresgid)(gid_t, gid_t arg2, gid_t arg3);
-long (*old_setfsuid)(uid_t arg1);
-long (*old_setfsgid)(gid_t arg1);
-long (*old_setregid32)(gid_t arg1, gid_t arg2);
-long (*old_setgid32)(gid_t arg1);
-long (*old_setreuid32)(uid_t arg1, uid_t arg2);
-long (*old_setuid32)(uid_t arg1);
-long (*old_setresuid32)(uid_t arg1, uid_t arg2, uid_t arg3);
-long (*old_setresgid32)(gid_t, gid_t arg2, gid_t arg3);
-long (*old_setfsuid32)(uid_t arg1);
-long (*old_setfsgid32)(gid_t arg1);
-long (*old_setpgid)(pid_t pid, pid_t pgid);
-long (*old_stime)(int * tptr);
-long (*old_settimeofday)(struct timeval *tv, struct timezone *tz);
-long (*old_adjtimex)(struct timex *txc_p);
-unsigned long (*old_create_module)(const char *name_user, size_t size);
-long (*old_init_module)(const char *name_user, struct module *mod_user);
-long (*old_delete_module)(const char *name_user);
-long (*old_mount)(char * dev_name, char * dir_name, char * type, unsigned long flags, void * data);
-long (*old_umount)(char * name, int flags);
-long (*old_reboot)(int magic1, int magic2, unsigned int cmd, void * arg);
-long (*old_quotactl)(int cmd, const char *special, int id, caddr_t addr);
-long (*old_setrlimit)(unsigned int resource, struct rlimit *rlim);
-// some fcntl may need to be protected in the future - F_SETOWN and F_SETSIG you already can't drop APPEND, so we don't worry about that
-long (*old_mknod)(const char * filename, int mode, dev_t dev);
-long (*old_swapoff)(const char * specialfile);
-long (*old_swapon)(const char * specialfile, int swap_flags);
-long (*old_syslog)(int type, char * buf, int len);
-long (*old_acct)(const char *name);
-int (*old_nfsservctl)(int cmd, void *argp, void *resp);
-long (*old_pivot_root)(const char *new_root, const char *put_old);
-long (*old_ioctl)(unsigned int fd, unsigned int cmd, unsigned long arg);
-long (*old_setgroups)(int gidsetsize, gid_t *grouplist);
-long (*old_newuname)(struct new_utsname * name);
-long (*old_sethostname)(char *name, int len);
-long (*old_setdomainname)(char *name, int len);
-long (*old_nice)(int increment);
-long (*old_sysctl)(struct __sysctl_args *args);
-long (*old_pciconfig_write)(unsigned long bus, unsigned long dfn, unsigned long off, unsigned long len, void *buf);
-long (*old_kill)(int pid, int sig);
-long (*old_fchdir)(unsigned int fd);
-
-// file syscalls
-long (*old_open)(const char * filename, int flags, int mode);
-long (*old_rename)(const char * oldname, const char * newname);
-long (*old_uselib)(const char * library);
-long (*old_truncate)(const char * path, unsigned long length);
-long (*old_truncate64)(const char * path, loff_t length);
-long (*old_utime)(char * filename, struct utimbuf * times);
-long (*old_utimes)(char * filename, struct timeval * utimes);
-// access is only for prettiness
-long (*old_chdir)(const char * filename);
-long (*old_chroot)(const char * filename);
-long (*old_fchmod)(unsigned int fd, mode_t mode);
-long (*old_chmod)(const char * filename, mode_t mode);
-long (*old_chown)(const char * filename, uid_t user, gid_t group);
-long (*old_lchown)(const char * filename, uid_t user, gid_t group);
-long (*old_fchown)(unsigned int fd, uid_t user, gid_t group);
-long (*old_creat)(const char * pathname, int mode);
-long (*old_mkdir)(const char * pathname, int mode);
-long (*old_link)(const char * oldname, const char * newname);
-long (*old_unlink)(const char * pathname);
-long (*old_rmdir)(const char * pathname);
-long (*old_symlink)(const char * oldname, const char * newname);
-
-// network syscalls
-long (*old_connect)(int fd, struct sockaddr *uservaddr, int addrlen);
-long (*old_bind)(int fd, struct sockaddr *umyaddr, int addrlen);
-long (*old_socketcall)(int call, unsigned long *args);
-// getpeername() might let you leak information
-// there's a bunch more network calls to take care of
+long *my_sys_call_table;
+long orig_sys_call_table[NR_syscalls];
+long (*sec_sys_call_table[NR_syscalls])();
 
 // We don't yet support labeled IPC - which could leave a system open to some memory based information attacks
 
 int new_bind(int fd, struct sockaddr *umyaddr, int addrlen);
 int new_connect(int fd, struct sockaddr *uservaddr, int addrlen);
 int new_sendto(int fd, void * buff, size_t len, unsigned flags, struct sockaddr *addr, int addr_len);
+
+long secDefault(void)
+{
+	return 0;
+}
 
 long new_socketcall(int call, unsigned long *args)
 {
@@ -257,13 +172,7 @@ long new_socketcall(int call, unsigned long *args)
 	if(err < 1)
 		return -EACCES;
 
-	return (*old_socketcall)(call, args);
-}
-
-long new_fchdir(unsigned int fd)
-{
-	// once we find a nice way to dereference the file descriptor we'll do this
-	return (*old_fchdir)(fd);
+	return 0;
 }
 
 long new_kill(int pid, int sig)
@@ -319,90 +228,34 @@ long new_kill(int pid, int sig)
 	return -EPERM;
 
 returnKill:
-	return (*old_kill)(pid, sig);
+	return 0;
 }
 	
-long new_pciconfig_write(unsigned long bus, unsigned long dfn, unsigned long off, unsigned long len, void *buf)
-{
-        if(checkPrivilege(PRIVILEGE_PCICONFIG) < 1)
-        {
-                return 0;
-        }
-	return (*old_pciconfig_write)(bus, dfn, off, len, buf);
-}
-
-long new_sysctl(struct __sysctl_args *args)
-{
-	// screw you, use /proc
-        if(checkPrivilege(PRIVILEGE_SYSCTL) < 1)
-        {
-                return 0;
-        }
-	return (*old_sysctl)(args);
-}
-
-long new_nice(int increment)
+long privilegeNICE(void)
 {
         if(checkPrivilege(PRIVILEGE_NICE) < 1)
         {
-                return 0;
+                return -EPERM;
         }
-	return (*old_nice)(increment);
+	return 0;
 }
 
-long new_setdomainname(char *name, int len)
+long privilegeNAME(void)
 {
         if(checkPrivilege(PRIVILEGE_NAME) < 1)
         {
-                return 0;
+                return -EPERM;
         }
-	return (*old_setdomainname)(name, len);
-}
-
-long new_sethostname(char *name, int len)
-{
-        if(checkPrivilege(PRIVILEGE_NAME) < 1)
-        {
-                return 0;
-        }
-	return (*old_sethostname)(name, len);
-}
-
-long new_newuname(struct new_utsname * name)
-{
-        if(checkPrivilege(PRIVILEGE_NAME) < 1)
-        {
-                return 0;
-        }
-	return (*old_newuname)(name);
+	return 0;
 }
 	
-long new_setgroups(int gidsetsize, gid_t *grouplist)
+long privilegeSETID(void)
 {
         if(checkPrivilege(PRIVILEGE_SETID) < 1)
         {
-                return 0;
+                return -EPERM;
         }
-	return (*old_setgroups)(gidsetsize, grouplist);
-}
-
-long new_setpgid(pid_t pid, pid_t pgid)
-{
-        if(checkPrivilege(PRIVILEGE_SETID) < 1)
-        {
-                return 0;
-        }
-	return (*old_setpgid)(pid, pgid);
-}
-
-long new_setpriority(int which, int who, int niceval)
-{
-	// in the future we want to bring this into line with the kernel so you can nice the process
-        if(checkPrivilege(PRIVILEGE_NICE) < 1)
-        {
-                return 0;
-        }
-	return(*old_setpriority)(which, who, niceval);
+	return 0;
 }
 
 long new_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg)
@@ -414,28 +267,28 @@ long new_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg)
 		// privileged ioctl
         	if(checkPrivilege(PRIVILEGE_IOCTL) < 1)
         	{
-                	return 0;
+                	return -EPERM;
         	}
 	}
-	return (*old_ioctl)(fd, cmd, arg);
+	return 0;
 }
 
-int new_pivot_root(const char *new_root, const char *put_old)
+long privilegeMOUNT(void)
 {
         if(checkPrivilege(PRIVILEGE_MOUNT) < 1)
         {
-                return 0;
+                return -EPERM;
         }
-	return (*old_pivot_root)(new_root, put_old);
+	return 0;
 }
 
-int new_nfsservctl(int cmd, void *argp, void *resp)
+long privilegeNFSCTL(void)
 {
         if(checkPrivilege(PRIVILEGE_NFSCTL) < 1)
         {
-                return 0;
+                return -EPERM;
         }
-	return (*old_nfsservctl)(cmd, argp, resp);
+	return 0;
 }
 
 // can't hook the bind syscall directly 
@@ -454,13 +307,13 @@ doBind:
 	return 1;
 }
 
-long new_setrlimit(unsigned int resource, struct rlimit *rlim)
+long privilegeRLIMIT(void)
 {
         if(checkPrivilege(PRIVILEGE_RLIMIT) < 1)
         {
-                return 0;
+                return -EPERM;
         }
-	return (*old_setrlimit)(resource, rlim);
+	return 0;
 }
 
 long new_acct(const char *name)
@@ -471,7 +324,7 @@ long new_acct(const char *name)
 
         if(checkPrivilege(PRIVILEGE_ACCT) < 1)
         {
-                return 0;
+                return -EPERM;
         }
 
 	// get our current process label
@@ -486,13 +339,13 @@ long new_acct(const char *name)
 		fileLabel = (processLabel & LABEL_MASK);
 	// we have this label now lets check access
 	if(fileLabelAccess(processLabel, fileLabel, LABEL_WRITE) < 1)
-		return 0;
+		return -EPERM;
 
 acctReturn:
-	return (*old_acct)(name);
+	return 0;
 }
 
-long new_mkdir(const char * pathname, int mode)
+long secCreateFile(const char * pathname)
 {
 	// we need write permission on the directory to create a directory
 	unsigned int processLabel, fileLabel;
@@ -521,129 +374,40 @@ long new_mkdir(const char * pathname, int mode)
 		fileLabel = (processLabel & LABEL_MASK);
 	// we have this label now lets check access
 	if(fileLabelAccess(processLabel, fileLabel, LABEL_WRITE) < 1)
-		return 0;
+		return -EACCES;
 
 mkdirReturn:
-	return (*old_mkdir)(pathname, mode);
+	return 0;
 }
 
-long new_creat(const char * pathname, int mode)
-{
-	// we need write permission on the directory to create a file
-	unsigned int processLabel, fileLabel;
-	char realFilename[1024], *realFilePtr;
-	
-	// get our current process label
-	if(getProcessLabel(&processLabel, current->pid) < 1)
-		goto creatReturn;
-
-        // lets resolve the real path of oldname
-	if(realFileName(pathname, realFilename, 1024) < 1)
-		goto creatReturn;
-
-	// we need to check write against the directory the file is in
-	// so we get the directory by modifying realFilename
-	realFilePtr = realFilename;
-	while(*realFilePtr != 0)
-		++realFilePtr;
-	while(*realFilePtr != '/')
-	{
-		*realFilePtr = 0;
-		--realFilePtr;
-	}
-
-	if(getFileLabel(realFilename, processLabel, &fileLabel) < 1)
-		fileLabel = (processLabel & LABEL_MASK);
-	// we have this label now lets check access
-	if(fileLabelAccess(processLabel, fileLabel, LABEL_WRITE) < 1)
-		return 0;
-
-creatReturn:
-	return (*old_creat)(pathname, mode);
-}
-
-long new_syslog(int type, char * buf, int len)
+long privilegeSYSLOG(void)
 {
         if(checkPrivilege(PRIVILEGE_SYSLOG) < 1)
         {
-                return 0;
+                return -EPERM;
         }
-	return (*old_syslog)(type, buf, len);
+	return 0;
 }
 
-long new_swapoff(const char * specialfile)
+long privilegeSWAP(void)
 {
         if(checkPrivilege(PRIVILEGE_SWAP) < 1)
         {
-                return 0;
+                return -EPERM;
         }
-	return (*old_swapoff)(specialfile);
+	return 0;
 }
 
-long new_swapon(const char * specialfile, int swap_flags)
-{
-        if(checkPrivilege(PRIVILEGE_SWAP) < 1)
-        {
-                return 0;
-        }
-	return (*old_swapon)(specialfile, swap_flags);
-}
-
-long new_chroot(const char * filename)
+long privilegeFILESYSTEM(const char * filename)
 {
         if(checkPrivilege(PRIVILEGE_FILESYSTEM) < 1)
         {
-                return 0;
+                return -EPERM;
         }
-	return (*old_chroot)(filename);
-}
-	
-long new_fchmod(unsigned int fd, mode_t mode)
-{
-        if(checkPrivilege(PRIVILEGE_FILESYSTEM) < 1)
-        {
-                return 0;
-        }
-	return (*old_fchmod)(fd, mode);
+	return 0;
 }
 
-long new_chmod(const char * filename, mode_t mode)
-{
-        if(checkPrivilege(PRIVILEGE_FILESYSTEM) < 1)
-        {
-                return 0;
-        }
-	return (*old_chmod)(filename, mode);
-}
-
-long new_chown(const char * filename, uid_t user, gid_t group)
-{
-        if(checkPrivilege(PRIVILEGE_FILESYSTEM) < 1)
-        {
-                return 0;
-        }
-	return (*old_chown)(filename, user, group);
-}
-
-long new_lchown(const char * filename, uid_t user, gid_t group)
-{
-        if(checkPrivilege(PRIVILEGE_FILESYSTEM) < 1)
-        {
-                return 0;
-        }
-	return (*old_lchown)(filename, user, group);
-}
-
-long new_fchown(unsigned int fd, uid_t user, gid_t group)
-{
-        if(checkPrivilege(PRIVILEGE_FILESYSTEM) < 1)
-        {
-                return 0;
-        }
-	return (*old_fchown)(fd, user, group);
-}
-
-long new_chdir(const char * filename)
+long secExecFile(const char * filename)
 {
 	// we need search on the directory
 	unsigned int processLabel, fileLabel;
@@ -657,39 +421,18 @@ long new_chdir(const char * filename)
 	if(realFileName(filename, realFilename, 1024) < 1)
 		goto chdirReturn;
 
-	// now that we've resolved the real pathname, we need to check if we have delete on the file,
-	// then write on the directory its in
-	// get the filelabel
 	if(getFileLabel(realFilename, processLabel, &fileLabel) < 1)
 		fileLabel = (processLabel & LABEL_MASK);
 	
 	// we have this label now lets check access
 	if(fileLabelAccess(processLabel, fileLabel, LABEL_EXEC) < 1)
-		return 0;
+		return -EACCES;
 
 chdirReturn:
-	return (*old_chdir)(filename);
+	return 0;
 }
 
-long new_utime(char * filename, struct utimbuf * times)
-{
-        if(checkPrivilege(PRIVILEGE_FILESYSTEM) < 1)
-        {
-                return 0;
-        }
-	return (*old_utime)(filename, times);
-}
-
-long new_utimes(char * filename, struct timeval * utimes)
-{
-        if(checkPrivilege(PRIVILEGE_FILESYSTEM) < 1)
-        {
-                return 0;
-        }
-	return (*old_utimes)(filename, utimes);
-}
-
-long new_truncate64(const char * path, loff_t length)
+long secWriteFile(const char * path)
 {
 	// we need write on the file
 	unsigned int processLabel, fileLabel;
@@ -703,46 +446,15 @@ long new_truncate64(const char * path, loff_t length)
 	if(realFileName(path, realFilename, 1024) < 1)
 		goto truncate64Return;
 
-	// now that we've resolved the real pathname, we need to check if we have delete on the file,
-	// then write on the directory its in
-	// get the filelabel
 	if(getFileLabel(realFilename, processLabel, &fileLabel) < 1)
 		fileLabel = (processLabel & LABEL_MASK);
 	
 	// we have this label now lets check access
 	if(fileLabelAccess(processLabel, fileLabel, LABEL_WRITE) < 1)
-		return 0;
+		return -EACCES;
 
 truncate64Return:
-	return (*old_truncate64)(path, length);
-}
-
-long new_truncate(const char * path, unsigned long length)
-{
-	// we need write on the file
-	unsigned int processLabel, fileLabel;
-	char realFilename[1024];
-	
-	// get our current process label
-	if(getProcessLabel(&processLabel, current->pid) < 1)
-		goto truncateReturn;
-
-        // lets resolve the real path of oldname
-	if(realFileName(path, realFilename, 1024) < 1)
-		goto truncateReturn;
-
-	// now that we've resolved the real pathname, we need to check if we have delete on the file,
-	// then write on the directory its in
-	// get the filelabel
-	if(getFileLabel(realFilename, processLabel, &fileLabel) < 1)
-		fileLabel = (processLabel & LABEL_MASK);
-	
-	// we have this label now lets check access
-	if(fileLabelAccess(processLabel, fileLabel, LABEL_WRITE) < 1)
-		return 0;
-
-truncateReturn:
-	return (*old_truncate)(path, length);
+	return 0;
 }
 
 long new_uselib(const char * library)
@@ -767,13 +479,13 @@ long new_uselib(const char * library)
 	
 	// we have this label now lets check access
 	if(fileLabelAccess(processLabel, fileLabel, LABEL_READ) < 1)
-		return 0;
+		return -EACCES;
 
 	if(fileLabelAccess(processLabel, fileLabel, LABEL_EXEC) < 1)
-		return 0;
+		return -EACCES;
 
 uselibReturn:
-	 return (*old_uselib)(library);
+	 return 0;
 }
 
 long new_rename(const char * oldname, const char * newname)
@@ -799,7 +511,7 @@ long new_rename(const char * oldname, const char * newname)
 	
 	// we have this label now lets check access
 	if(fileLabelAccess(processLabel, fileLabel, LABEL_DELETE) < 1)
-		return 0;
+		return -EACCES;
 
 	// we need to check write against the directory the file is in
 	// so we get the directory by modifying realFilename
@@ -817,7 +529,7 @@ renameReturn1:
 		fileLabel = (processLabel & LABEL_MASK);
 	// we have this label now lets check access
 	if(fileLabelAccess(processLabel, fileLabel, LABEL_WRITE) < 1)
-		return 0;
+		return -EACCES;
 
         // lets resolve the real path of newname
 	if(realFileName(oldname, realFilename, 1024) < 1)
@@ -831,7 +543,7 @@ renameReturn1:
 	
 	// we have this label now lets check access
 	if(fileLabelAccess(processLabel, fileLabel, LABEL_DELETE) < 1)
-		return 0;
+		return -EACCES;
 
 	// we need to check write against the directory the file is in
 	// so we get the directory by modifying realFilename
@@ -848,12 +560,18 @@ renameReturn1:
 		fileLabel = (processLabel & LABEL_MASK);
 	// we have this label now lets check access
 	if(fileLabelAccess(processLabel, fileLabel, LABEL_WRITE) < 1)
-		return 0;
+		return -EACCES;
 
 renameReturn:
-	return (*old_rename)(oldname, newname);
+	return 0;
 }
 
+//
+// STIK - the fork series work differently
+// 	- so we need to handle saving their original file pointers
+//	- and calling these functions differently
+//	
+int (*old_fork)(struct pt_regs regs);
 int new_fork(struct pt_regs regs)
 {
 	int newPid;
@@ -862,10 +580,12 @@ int new_fork(struct pt_regs regs)
 	listNode *pidTempNode;
 	procAttr *newProcAttr; 
 	procAttr *tempProcAttr; 
+	printk("in new_fork()\n");
 
 	// hmm wonder if there is a race condition caused by doing fork first
-	// i guess no, esp if userspace is waiting on a return from this syscall
+	// i guess no, esp. if userspace is waiting on a return from this syscall
 	newPid =(*old_fork)(regs);
+	printk("fork(): currentPid: %d newPid: %d\n", current->pid, newPid);
 
 	// see if this is a protected process, if so, mark the process being forked
 	write_lock(&pidListLock);
@@ -890,6 +610,7 @@ int new_fork(struct pt_regs regs)
 	return newPid;
 }
 
+int (*old_clone)(struct pt_regs regs);
 int new_clone(struct pt_regs regs)
 {
 	int newPid;
@@ -925,6 +646,7 @@ int new_clone(struct pt_regs regs)
 	return newPid;
 }
 
+int (*old_vfork)(struct pt_regs regs);
 int new_vfork(struct pt_regs regs)
 {
 	int newPid;
@@ -936,7 +658,7 @@ int new_vfork(struct pt_regs regs)
 
 	// hmm wonder if there is a race condition caused by doing fork first
 	// i guess no, esp if userspace is waiting on a return from this syscall
-	newPid =(*old_vfork)(regs);
+	newPid = (*old_vfork)(regs);
 
 	// see if this is a protected process, if so, mark the process being forked
 	write_lock(&pidListLock);
@@ -968,8 +690,7 @@ long new_mknod(const char * filename, int mode, dev_t dev)
 
         if(checkPrivilege(PRIVILEGE_MKNOD) < 1)
         {
-                return 0;
-
+                return -EPERM;
         }
 	
 	// we need to make sure we have write access to the directory that this file is in
@@ -994,10 +715,10 @@ long new_mknod(const char * filename, int mode, dev_t dev)
 		fileLabel = (processLabel & LABEL_MASK);
 	
 	if(fileLabelAccess(processLabel, fileLabel, LABEL_WRITE) < 1)
-		return 0;
+		return -EACCES;
 
 mknodReturn:
-	return (*old_mknod)(filename, mode, dev);
+	return 0;
 }
 	
 long new_quotactl(int cmd, const char *special, int id, caddr_t addr)
@@ -1008,14 +729,14 @@ long new_quotactl(int cmd, const char *special, int id, caddr_t addr)
 	{
 		if(checkPrivilege(PRIVILEGE_FSQUOTA) < 1)
         	{
-                	return 0;
+                	return -EPERM;
         	}
 	}
-	return (*old_quotactl)(cmd, special, id, addr);
+	return 0;
 }
 
 // ptrace should definitely be restricted by label - i'm sure someone will debate whether it needs to be restricted by privilege as well
-int new_ptrace(long request, long pid, long addr, long data)
+long new_ptrace(long request, long pid, long addr, long data)
 {
 	unsigned int currentLabel, traceLabel;
 	if(getProcessLabel(&currentLabel, current->pid) < 1)
@@ -1023,12 +744,12 @@ int new_ptrace(long request, long pid, long addr, long data)
 		goto ptraceReturn;
 	if(getProcessLabel(&traceLabel, (short int)pid) < 1)
 		// protected tracing unprotected - no way
-		return 0;
+		return -EPERM;
 	if(currentLabel != traceLabel)
 		//different labels - no way
-		return 0;
+		return -EPERM;
 ptraceReturn:
-	return (*old_ptrace)(request, pid, addr, data);
+	return 0;
 }
 
 asmlinkage int new_execve(struct pt_regs regs)
@@ -1089,264 +810,81 @@ execve_return:
 		current->ptrace &= ~PT_DTRACE;
 	putname(filename);
 out:
-	//return (*old_execve)(regs);
-	//retVal = (*old_execve)(regs);
 	return retVal;
 }
 	
 
 // hope these io perm bit calls don't break anything :)
-int new_ioperm(unsigned long from, unsigned long num, int turn_on)
+long privilegeRAWIO(void)
 {
         if(checkPrivilege(PRIVILEGE_RAWIO) < 1)
         {
-                return 0;
+                return -EPERM;
         }
-	return (*old_ioperm)(from, num, turn_on);
+	return 0;
 }
 
-int new_iopl(unsigned long unused)
-{
-        if(checkPrivilege(PRIVILEGE_RAWIO) < 1)
-        {
-                return 0;
-        }
-	return (*old_iopl)(unused);
-}
-
-long new_reboot(int magic1, int magic2, unsigned int cmd, void * arg)
+long privilegeREBOOT(void)
 {
         if(checkPrivilege(PRIVILEGE_REBOOT) < 1)
         {
-                return 0;
+                return -EPERM;
         }
-        return (*old_reboot)(magic1, magic2, cmd, arg);
+        return 0;
 }
 
 long new_adjtimex(struct timex *txc_p)
 {
         if(txc_p->modes && (checkPrivilege(PRIVILEGE_TIME) < 1))
         {
-                return 0;
+                return -EPERM;
         }
-	return (*old_adjtimex)(txc_p);
+	return 0;
 }
 	
-long new_settimeofday(struct timeval *tv, struct timezone *tz)
+long privilegeTIME(void)
 {
         if(checkPrivilege(PRIVILEGE_TIME) < 1)
         {
-                return 0;
+                return -EPERM;
         }
-	return (*old_settimeofday)(tv, tz);
+	return 0;
 }
 
-long new_stime(int * tptr)
-{
-	if(checkPrivilege(PRIVILEGE_TIME) < 1)
-	{
-		return 0;
-	}
-	return (*old_stime)(tptr);
-}
-
-long new_setregid(gid_t arg1, gid_t arg2)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setregid)(arg1, arg2);
-}
-
-long new_setregid32(gid_t arg1, gid_t arg2)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setregid32)(arg1, arg2);
-}
-
-long new_setgid(gid_t arg1)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setgid)(arg1);
-}
-
-long new_setgid32(gid_t arg1)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setgid32)(arg1);
-}
-
-long new_setreuid(uid_t arg1, uid_t arg2)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setreuid)(arg1, arg2);
-}
-
-long new_setreuid32(uid_t arg1, uid_t arg2)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setreuid32)(arg1, arg2);
-}
-
-long new_setuid(uid_t arg1)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setuid)(arg1);
-}
-
-long new_setuid32(uid_t arg1)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setuid32)(arg1);
-}
-
-long new_setresuid(uid_t arg1, uid_t arg2, uid_t arg3)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setresuid)(arg1, arg2, arg3);
-}
-
-long new_setresuid32(uid_t arg1, uid_t arg2, uid_t arg3)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setresuid32)(arg1, arg2, arg3);
-}
-
-
-long new_setresgid(arg1, arg2, arg3)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setresgid)(arg1, arg2, arg3);
-}
-
-long new_setresgid32(arg1, arg2, arg3)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setresgid32)(arg1, arg2, arg3);
-}
-
-long new_setfsuid(uid_t arg1)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setfsuid)(arg1);
-}
-
-long new_setfsuid32(uid_t arg1)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setfsuid32)(arg1);
-}
-
-long new_setfsgid(gid_t arg1)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setfsgid)(arg1);
-}
-
-long new_setfsgid32(gid_t arg1)
-{
-	if(checkPrivilege(PRIVILEGE_SETID) < 1)
-	{
-		return 0;
-	}
-	return (*old_setfsgid32)(arg1);
-}
-
-unsigned long new_create_module(const char *name_user, size_t size)
+long privilegeMODULE(void)
 {
 	if(checkPrivilege(PRIVILEGE_MODULE) < 1)
 	{
-		return 0;
+		return -EPERM;
 	}
-	return (*old_create_module)(name_user, size);
+
+	return 0;
 }
 	
-long new_init_module(const char *name_user, struct module *mod_user)
-{
-	if(checkPrivilege(PRIVILEGE_MODULE) < 1)
-	{
-		return 0;
-	}
-	return (*old_init_module)(name_user, mod_user);
-}
-
-long new_delete_module(const char *name_user)
-{
-	if(checkPrivilege(PRIVILEGE_MODULE) < 1)
-	{
-		return 0;
-	}
-	return (*old_delete_module)(name_user);
-}
-
 long new_mount(char * dev_name, char * dir_name, char * type, unsigned long flags, void * data)
 {
 	if(checkPrivilege(PRIVILEGE_MOUNT) < 1)
 	{
-		return 0;
+		return -EPERM;
 	}
 	// we also want to check filesystem rights on a mount
 
-	return (*old_mount)(dev_name, dir_name, type, flags, data);
+	return 0;
 }
 
 long new_umount(char * name, int flags)
 {
 	if(checkPrivilege(PRIVILEGE_MOUNT) < 1)
 	{
-		return 0;
+		return -EPERM;
 	}
 	// we also want to check filesystem rights on a umount
 
-	return (*old_umount)(name, flags);
+	return 0;
 }
 
 long new_exit(int error_code)
 {
-	long retVal;
 	unsigned int tempPid = current->pid;
 	listNode *tmpListNode;
 	procAttr *tmpProcAttr;
@@ -1364,17 +902,15 @@ long new_exit(int error_code)
 	}
 	write_unlock(&pidListLock);
 
-	retVal = (*old_exit)(error_code);
+	//retVal = (*old_exit)(error_code);
 	
-	// we probably don't ever get here
-	return retVal;
+	return 0;
 }
 
 long new_open(const char * filename, int flags, int mode)
 {
 	unsigned int processLabel, fileLabel;
 	char realFilename[1024];
-	long retVal;
 
 	// get our current process label
 	if(getProcessLabel(&processLabel, current->pid) < 1)
@@ -1408,8 +944,7 @@ long new_open(const char * filename, int flags, int mode)
 	}
 
 openReturn:
-	retVal = (*old_open)(filename,flags,mode);
-	return retVal;
+	return 0;
 }
 
 int new_sendto(int fd, void * buff, size_t len, unsigned flags, struct sockaddr *addr, int addr_len)
@@ -1522,7 +1057,7 @@ symlinkLabelCopy:
 	write_unlock(&fileListLock);
 
 symlinkReturn:
-        return (*old_symlink)(oldname, newname);
+        return 0;
 }
 
 long new_link(const char * oldname, const char * newname)
@@ -1608,10 +1143,10 @@ linkLabelCopy:
 	write_unlock(&fileListLock);
 linkReturn:
 
-	return (*old_link)(oldname, newname);
+	return 0;
 }
 
-long new_unlink(const char * pathname)
+long secDeleteFile(const char * pathname)
 {
         char realFilename[1024], *realFilePtr;
 	unsigned int processLabel, fileLabel;
@@ -1632,7 +1167,7 @@ long new_unlink(const char * pathname)
 	
 	// we have this label now lets check access
 	if(fileLabelAccess(processLabel, fileLabel, LABEL_DELETE) < 1)
-		return 0;
+		return -EACCES;
 
 	// we need to check write against the directory the file is in
 	// so we get the directory by modifying realFilename
@@ -1649,57 +1184,13 @@ long new_unlink(const char * pathname)
 		fileLabel = (processLabel & LABEL_MASK);
 	// we have this label now lets check access
 	if(fileLabelAccess(processLabel, fileLabel, LABEL_WRITE) < 1)
-		return 0;
+		return -EACCES;
 
 unlinkReturn:
-	return (*old_unlink)(pathname);
+	return 0;
 }
 
-long new_rmdir(const char * pathname)
-{
-        char realFilename[1024], *realFilePtr;
-        unsigned int processLabel, fileLabel;
 
-        // get our current process label
-        if(getProcessLabel(&processLabel, current->pid) < 1)
-                goto rmdirReturn;
-
-        // lets resolve the real path of pathname
-        if(realFileName(pathname, realFilename, 1024) < 1)
-                goto rmdirReturn;
-
-        // now that we've resolve the real pathname, we need to check if we have delete on the file,
-        // then write on the directory its in
-        // get the filelabel
-        if(getFileLabel(realFilename, processLabel, &fileLabel) < 1)
-		fileLabel = (processLabel & LABEL_MASK);
-
-        // we have this label now lets check access
-	if(fileLabelAccess(processLabel, fileLabel, LABEL_DELETE) < 1)
-		return 0;
-
-        // we need to check write against the directory the file is in
-        // so we get the directory by modifying realFilename
-        realFilePtr = realFilename;
-        while(*realFilePtr != 0)
-                ++realFilePtr;
-        while(*realFilePtr != '/')
-        {
-                *realFilePtr = 0;
-                --realFilePtr;
-        }
-
-        if(getFileLabel(realFilename, processLabel, &fileLabel) < 1)
-		fileLabel = (processLabel & LABEL_MASK);
-        // we have this label now lets check access
-	if(fileLabelAccess(processLabel, fileLabel, LABEL_WRITE) < 1)
-		return 0;
-
-rmdirReturn:
-        return (*old_rmdir)(pathname);
-}
-
-	
 // driver functions
 static int driverOpen(struct inode *i, struct file *f)
 {
@@ -2254,20 +1745,7 @@ static struct file_operations fileOps = {
 // module functions
 int init_module(void)
 {
-	unsigned int sys_call_off;
 	int ctr = 0;
-
-	struct {
-		unsigned short limit;
-		unsigned int base;
-	} __attribute__ ((packed)) idtr;
-
-	struct {
-        	unsigned short off1;
-        	unsigned short sel;
-        	unsigned char none,flags;
-        	unsigned short off2;
-	} __attribute__ ((packed)) *idt;
 
 	// setup variables
 	pidListHead = NULL;
@@ -2285,263 +1763,110 @@ int init_module(void)
 	rwlock_init(&fileListLock);
 	rwlock_init(&netListLock);
 
-	// Since in the future we will so rudely be denied access to
-	// sys_call_table, we have to go ahead and find it
-	// This code is borrowed from sd and devik's article
-	// in Phrack 58
-	asm ("sidt %0" : "=m" (idtr));
-	(unsigned int)idt = (unsigned int)(idtr.base+8*0x80);
-	sys_call_off = (idt->off2 << 16) | idt->off1;
-	while(1)
-	{
-		// could probably use memcmp
-		if(!strncmp((char *)sys_call_off,"\xff\x14\x85",3))
-			break;
-		++sys_call_off;
-		++ctr;
-		if(ctr > 400)
-		{
-			printk("Westsides: No system call table found\n");
-			unregister_chrdev(40, "westsides");
-			return -EIO;
-		}
-	}
-	my_sys_call_table = (unsigned int *)*(unsigned int *)(sys_call_off + 3);
-
-	// setup syscall table
-	old_fork = (void *)my_sys_call_table[SYS_fork];
-	my_sys_call_table[SYS_fork] = (unsigned int)new_fork;
-
-	old_clone = (void *)my_sys_call_table[SYS_clone];
-	my_sys_call_table[SYS_clone] = (unsigned int)new_clone;
-
-	old_vfork = (void *)my_sys_call_table[SYS_vfork];
-	my_sys_call_table[SYS_vfork] = (unsigned int)new_vfork;
-
-	old_setregid = (void *)my_sys_call_table[SYS_setregid];
-	my_sys_call_table[SYS_setregid] = (unsigned int)new_setregid;
-
-	old_setgid = (void *)my_sys_call_table[SYS_setgid];
-	my_sys_call_table[SYS_setgid] = (unsigned int)new_setgid;
-
-	old_setreuid = (void *)my_sys_call_table[SYS_setreuid];
-	my_sys_call_table[SYS_setreuid] = (unsigned int)new_setreuid;
-
-	old_setuid = (void *)my_sys_call_table[SYS_setuid];
-	my_sys_call_table[SYS_setuid] = (unsigned int)new_setuid;
-
-	old_setresuid = (void *)my_sys_call_table[SYS_setresuid];
-	my_sys_call_table[SYS_setresuid] = (unsigned int)new_setresuid;
-
-	old_setresgid = (void *)my_sys_call_table[SYS_setresgid];
-	my_sys_call_table[SYS_setresgid] = (unsigned int)new_setresgid;
-
-	old_setfsgid = (void *)my_sys_call_table[SYS_setfsgid];
-	my_sys_call_table[SYS_setfsgid] = (unsigned int)new_setfsgid;
-
-	old_setfsuid = (void *)my_sys_call_table[SYS_setfsuid];
-	my_sys_call_table[SYS_setfsuid] = (unsigned int)new_setfsuid;
-
-	old_setregid32 = (void *)my_sys_call_table[SYS_setregid32];
-	my_sys_call_table[SYS_setregid32] = (unsigned int)new_setregid32;
-
-	old_setgid32 = (void *)my_sys_call_table[SYS_setgid32];
-	my_sys_call_table[SYS_setgid32] = (unsigned int)new_setgid;
-
-	old_setreuid32 = (void *)my_sys_call_table[SYS_setreuid32];
-	my_sys_call_table[SYS_setreuid32] = (unsigned int)new_setreuid32;
-
-	old_setuid32 = (void *)my_sys_call_table[SYS_setuid32];
-	my_sys_call_table[SYS_setuid32] = (unsigned int)new_setuid32;
-
-	old_setresuid32 = (void *)my_sys_call_table[SYS_setresuid32];
-	my_sys_call_table[SYS_setresuid32] = (unsigned int)new_setresuid32;
-
-	old_setresgid32 = (void *)my_sys_call_table[SYS_setresgid32];
-	my_sys_call_table[SYS_setresgid32] = (unsigned int)new_setresgid32;
-
-	old_setfsgid32 = (void *)my_sys_call_table[SYS_setfsgid32];
-	my_sys_call_table[SYS_setfsgid32] = (unsigned int)new_setfsgid32;
-
-	old_setfsuid32 = (void *)my_sys_call_table[SYS_setfsuid32];
-	my_sys_call_table[SYS_setfsuid32] = (unsigned int)new_setfsuid32;
-
-	old_create_module = (void *)my_sys_call_table[SYS_create_module];
-	my_sys_call_table[SYS_create_module] = (unsigned int)new_create_module;
-
-	old_init_module = (void *)my_sys_call_table[SYS_init_module];
-	my_sys_call_table[SYS_init_module] = (unsigned int)new_init_module;
-
-	// no point in having it segfault every time we rmmod it
-	old_delete_module = (void *)my_sys_call_table[SYS_delete_module];
-	// my_sys_call_table[SYS_delete_module] = (unsigned int)new_delete_module;
-
-	old_mount = (void *)my_sys_call_table[SYS_mount];
-	my_sys_call_table[SYS_mount] = (unsigned int)new_mount;
-
-	old_umount = (void *)my_sys_call_table[SYS_umount];
-	my_sys_call_table[SYS_umount] = (unsigned int)new_umount;
-
-	old_exit = (void *)my_sys_call_table[SYS_exit];
-	my_sys_call_table[SYS_exit] = (unsigned int)new_exit;
-
-	old_open = (void *)my_sys_call_table[SYS_open];
-	my_sys_call_table[SYS_open] = (unsigned int)new_open;
-
-	// old_connect = my_sys_call_table[SYS_connect];
-	// my_sys_call_table[SYS_connect] = (unsigned int)new_connect;
-
-	old_link = (void *)my_sys_call_table[SYS_link];
-	my_sys_call_table[SYS_link] = (unsigned int)new_link;
-
-	old_symlink = (void *)my_sys_call_table[SYS_symlink];
-	my_sys_call_table[SYS_symlink] = (unsigned int)new_symlink;
-
-	old_unlink = (void *)my_sys_call_table[SYS_unlink];
-	my_sys_call_table[SYS_unlink] = (unsigned int)new_unlink;
-
-	old_stime = (void *)my_sys_call_table[SYS_stime];
-	my_sys_call_table[SYS_stime] = (unsigned int)new_stime;
-
-	old_settimeofday = (void *)my_sys_call_table[SYS_settimeofday];
-	my_sys_call_table[SYS_settimeofday] = (unsigned int)new_settimeofday;
-
-	old_adjtimex = (void *)my_sys_call_table[SYS_adjtimex];
-	my_sys_call_table[SYS_adjtimex] = (unsigned int)new_adjtimex;
-
-	old_reboot = (void *)my_sys_call_table[SYS_reboot];
-	my_sys_call_table[SYS_reboot] = (unsigned int)new_reboot;
-
-	old_ioperm = (void *)my_sys_call_table[SYS_ioperm];
-	my_sys_call_table[SYS_ioperm] = (unsigned int)new_ioperm;
-
-	old_ptrace = (void *)my_sys_call_table[SYS_ptrace];
-	my_sys_call_table[SYS_ptrace] = (unsigned int)new_ptrace;
-
-	old_execve = (void *)my_sys_call_table[SYS_execve];
-	// execve is causing userspace segfaults. hmm
-	my_sys_call_table[SYS_execve] = (unsigned int)new_execve;
-
-	old_quotactl = (void *)my_sys_call_table[SYS_quotactl];
-	my_sys_call_table[SYS_quotactl] = (unsigned int)new_quotactl;
-
-	old_mknod = (void *)my_sys_call_table[SYS_mknod];
-	my_sys_call_table[SYS_mknod] = (unsigned int)new_mknod;
-
-	old_rmdir = (void *)my_sys_call_table[SYS_rmdir];
-	my_sys_call_table[SYS_rmdir] = (unsigned int)new_rmdir;
-
-	old_rename = (void *)my_sys_call_table[SYS_rename];
-	my_sys_call_table[SYS_rename] = (unsigned int)new_rename;
-
-	old_uselib = (void *)my_sys_call_table[SYS_uselib];
-	my_sys_call_table[SYS_uselib] = (unsigned int)new_uselib;
-
-	old_truncate = (void *)my_sys_call_table[SYS_truncate];
-	my_sys_call_table[SYS_truncate] = (unsigned int)new_truncate;
-
-	old_truncate64 = (void *)my_sys_call_table[SYS_truncate64];
-	my_sys_call_table[SYS_truncate64] = (unsigned int)new_truncate64;
-
-	old_utime = (void *)my_sys_call_table[SYS_utime];
-	my_sys_call_table[SYS_utime] = (unsigned int)new_utime;
-
-	//old_utimes = my_sys_call_table[SYS_utimes];
-	//my_sys_call_table[SYS_utimes] = (unsigned int)new_utimes;
-
-	old_chdir = (void *)my_sys_call_table[SYS_chdir];
-	my_sys_call_table[SYS_chdir] = (unsigned int)new_chdir;
-
-	old_chroot = (void *)my_sys_call_table[SYS_chroot];
-	my_sys_call_table[SYS_chroot] = (unsigned int)new_chroot;
-
-	old_chmod = (void *)my_sys_call_table[SYS_chmod];
-	my_sys_call_table[SYS_chmod] = (unsigned int)new_chmod;
-
-	old_fchmod = (void *)my_sys_call_table[SYS_fchmod];
-	my_sys_call_table[SYS_fchmod] = (unsigned int)new_fchmod;
-
-	old_chown = (void *)my_sys_call_table[SYS_chown];
-	my_sys_call_table[SYS_chown] = (unsigned int)new_chown;
-
-	old_fchown = (void *)my_sys_call_table[SYS_fchown];
-	my_sys_call_table[SYS_fchown] = (unsigned int)new_fchown;
-
-	old_lchown = (void *)my_sys_call_table[SYS_lchown];
-	my_sys_call_table[SYS_lchown] = (unsigned int)new_lchown;
-
-	old_swapoff = (void *)my_sys_call_table[SYS_swapoff];
-	my_sys_call_table[SYS_swapoff] = (unsigned int)new_swapoff;
-
-	old_swapon = (void *)my_sys_call_table[SYS_swapon];
-	my_sys_call_table[SYS_swapon] = (unsigned int)new_swapon;
-
-	old_syslog = (void *)my_sys_call_table[SYS_syslog];
-	my_sys_call_table[SYS_syslog] = (unsigned int)new_syslog;
-
-	old_creat = (void *)my_sys_call_table[SYS_creat];
-	my_sys_call_table[SYS_creat] = (unsigned int)new_creat;
-
-	old_mkdir = (void *)my_sys_call_table[SYS_mkdir];
-	my_sys_call_table[SYS_mkdir] = (unsigned int)new_mkdir;
-
-	old_acct = (void *)my_sys_call_table[SYS_acct];
-	my_sys_call_table[SYS_acct] = (unsigned int)new_acct;
-
-	old_setrlimit = (void *)my_sys_call_table[SYS_setrlimit];
-	my_sys_call_table[SYS_setrlimit] = (unsigned int)new_setrlimit;
-
-	// old_bind = (void *)my_sys_call_table[SYS_bind];
-	// my_sys_call_table[SYS_bind] = (unsigned int)new_bind;
-
-	old_nfsservctl = (void *)my_sys_call_table[SYS_nfsservctl];
-	my_sys_call_table[SYS_nfsservctl] = (unsigned int)new_nfsservctl;
-
-	old_pivot_root = (void *)my_sys_call_table[SYS_pivot_root];
-	my_sys_call_table[SYS_pivot_root] = (unsigned int)new_pivot_root;
-
-	old_ioctl = (void *)my_sys_call_table[SYS_ioctl];
-	my_sys_call_table[SYS_ioctl] = (unsigned int)new_ioctl;
-
-	old_setpriority = (void *)my_sys_call_table[SYS_setpriority];
-	my_sys_call_table[SYS_setpriority] = (unsigned int)new_setpriority;
-
-	old_setpgid = (void *)my_sys_call_table[SYS_setpgid];
-	my_sys_call_table[SYS_setpgid] = (unsigned int)new_setpgid;
-
-	old_setgroups = (void *)my_sys_call_table[SYS_setgroups];
-	my_sys_call_table[SYS_setgroups] = (unsigned int)new_setgroups;
-
-	//old_newuname = (void *)my_sys_call_table[SYS_newuname];
-	//my_sys_call_table[SYS_newuname] = (unsigned int)new_newuname;
-
-	old_sethostname = (void *)my_sys_call_table[SYS_sethostname];
-	my_sys_call_table[SYS_sethostname] = (unsigned int)new_sethostname;
-
-	old_setdomainname = (void *)my_sys_call_table[SYS_setdomainname];
-	my_sys_call_table[SYS_setdomainname] = (unsigned int)new_setdomainname;
-
-	old_nice = (void *)my_sys_call_table[SYS_nice];
-	my_sys_call_table[SYS_nice] = (unsigned int)new_nice;
-
-	old_iopl = (void *)my_sys_call_table[SYS_iopl];
-	my_sys_call_table[SYS_iopl] = (unsigned int)new_iopl;
-
-	//old_sysctl = (void *)my_sys_call_table[SYS_sysctl];
-	//my_sys_call_table[SYS_sysctl] = (unsigned int)new_sysctl;
-
-	//old_pciconfig_write = (void *)my_sys_call_table[SYS_pciconfig_write];
-	//my_sys_call_table[SYS_pciconfig_write] = (unsigned int)new_pciconfig_write;
-
-	old_kill = (void *)my_sys_call_table[SYS_kill];
-	my_sys_call_table[SYS_kill] = (unsigned int)new_kill;
-
-	// old_fchdir = (void *)my_sys_call_table[SYS_fchdir];
-	// my_sys_call_table[SYS_fchdir] = (unsigned int)new_fchdir;
-
-	old_socketcall = (void *)my_sys_call_table[SYS_socketcall];
-	my_sys_call_table[SYS_socketcall] = (unsigned int)new_socketcall;
-
+	// setup system call tables
+
+	my_sys_call_table = getSysCallTable();
+	if(my_sys_call_table == NULL)
+		return -EIO;
+
+	saveSysCallTable(my_sys_call_table, orig_sys_call_table);
+
+	// setup sec_sys_call_table
+	for(ctr = 0; ctr < NR_syscalls; ++ctr)
+		sec_sys_call_table[ctr] = secDefault;
+
+	//
+	// Syscalls controlled by privilege
+	//
+	sec_sys_call_table[SYS_setregid] = 	privilegeSETID;
+	sec_sys_call_table[SYS_setgid] = 	privilegeSETID;
+	sec_sys_call_table[SYS_setreuid] =	privilegeSETID;
+	sec_sys_call_table[SYS_setuid] = 	privilegeSETID;
+	sec_sys_call_table[SYS_setresuid] =	privilegeSETID;
+	sec_sys_call_table[SYS_setresgid] =	privilegeSETID;
+	sec_sys_call_table[SYS_setfsgid] = 	privilegeSETID;
+	sec_sys_call_table[SYS_setfsuid] = 	privilegeSETID;
+	sec_sys_call_table[SYS_setregid32] =	privilegeSETID;
+	sec_sys_call_table[SYS_setgid32] = 	privilegeSETID;
+	sec_sys_call_table[SYS_setreuid32] =	privilegeSETID;
+	sec_sys_call_table[SYS_setuid32] = 	privilegeSETID;
+	sec_sys_call_table[SYS_setresuid32] = 	privilegeSETID;
+	sec_sys_call_table[SYS_setresgid32] = 	privilegeSETID;
+	sec_sys_call_table[SYS_setfsgid32] = 	privilegeSETID;
+	sec_sys_call_table[SYS_setfsuid32] = 	privilegeSETID;
+	sec_sys_call_table[SYS_setpgid] = 	privilegeSETID;
+	sec_sys_call_table[SYS_setgroups] =	privilegeSETID;
+	sec_sys_call_table[SYS_create_module] =	privilegeMODULE;
+	sec_sys_call_table[SYS_init_module] = 	privilegeMODULE;
+	sec_sys_call_table[SYS_delete_module] =	privilegeMODULE;
+	sec_sys_call_table[SYS_stime] = 	privilegeTIME;
+	sec_sys_call_table[SYS_settimeofday] = 	privilegeTIME;
+	sec_sys_call_table[SYS_reboot] = 	privilegeREBOOT;
+	sec_sys_call_table[SYS_ioperm] = 	privilegeRAWIO;
+	sec_sys_call_table[SYS_utime] = 	privilegeFILESYSTEM;
+	sec_sys_call_table[SYS_chroot] =	privilegeFILESYSTEM;
+	sec_sys_call_table[SYS_chmod] = 	privilegeFILESYSTEM;
+	sec_sys_call_table[SYS_fchmod] =	privilegeFILESYSTEM;
+	sec_sys_call_table[SYS_chown] = 	privilegeFILESYSTEM;
+	sec_sys_call_table[SYS_fchown] =	privilegeFILESYSTEM;
+	sec_sys_call_table[SYS_lchown] =	privilegeFILESYSTEM;
+	sec_sys_call_table[SYS_swapoff] =	privilegeSWAP;
+	sec_sys_call_table[SYS_swapon] = 	privilegeSWAP;
+	sec_sys_call_table[SYS_syslog] = 	privilegeSYSLOG;
+	sec_sys_call_table[SYS_setrlimit] =	privilegeRLIMIT;
+	sec_sys_call_table[SYS_nfsservctl] =	privilegeNFSCTL;
+	sec_sys_call_table[SYS_pivot_root] =	privilegeMOUNT;
+	sec_sys_call_table[SYS_setpriority] =	privilegeNICE;
+	sec_sys_call_table[SYS_nice] =	 	privilegeNICE;
+	sec_sys_call_table[SYS_sethostname] =	privilegeNAME;
+	sec_sys_call_table[SYS_setdomainname] =	privilegeNAME;
+	sec_sys_call_table[SYS_iopl] =	 	privilegeRAWIO;
+
+	//
+	//  Syscalls controlled by file label
+	//
+	sec_sys_call_table[SYS_unlink] = 	secDeleteFile;
+	sec_sys_call_table[SYS_rmdir] = 	secDeleteFile;
+	sec_sys_call_table[SYS_truncate] = 	secWriteFile;
+	sec_sys_call_table[SYS_truncate64] = 	secWriteFile;
+	sec_sys_call_table[SYS_chdir] = 	secExecFile;
+	sec_sys_call_table[SYS_creat] = 	secCreateFile;
+	sec_sys_call_table[SYS_mkdir] = 	secCreateFile;
+
+	//
+	//  Miscellaneous syscalls
+	//
+	sec_sys_call_table[SYS_fork] = 		new_fork;
+	sec_sys_call_table[SYS_clone] = 	new_clone;
+	sec_sys_call_table[SYS_vfork] = 	new_vfork;
+	sec_sys_call_table[SYS_mount] = 	new_mount;
+	sec_sys_call_table[SYS_umount] = 	new_umount;
+	sec_sys_call_table[SYS_exit] = 		new_exit;
+	sec_sys_call_table[SYS_open] = 		new_open;
+	sec_sys_call_table[SYS_link] = 		new_link;
+	sec_sys_call_table[SYS_symlink] = 	new_symlink;
+	sec_sys_call_table[SYS_adjtimex] = 	new_adjtimex;
+	sec_sys_call_table[SYS_ptrace] = 	new_ptrace;
+	//sec_sys_call_table[SYS_execve] = 	new_execve;
+	sec_sys_call_table[SYS_quotactl] = 	new_quotactl;
+	sec_sys_call_table[SYS_mknod] =		new_mknod;
+	sec_sys_call_table[SYS_rename] = 	new_rename;
+	sec_sys_call_table[SYS_uselib] = 	new_uselib;
+	sec_sys_call_table[SYS_acct] = 		new_acct;
+	sec_sys_call_table[SYS_ioctl] =		new_ioctl;
+	sec_sys_call_table[SYS_kill] = 		new_kill;
+	sec_sys_call_table[SYS_socketcall] = 	new_socketcall;
+
+	trapSysCalls(my_sys_call_table);
+
+	// these syscalls have to be handled special for now
+	my_sys_call_table[SYS_fork] = (long)new_fork;
+	old_fork = orig_sys_call_table[SYS_fork];
+	my_sys_call_table[SYS_clone] = (long)new_clone;
+	old_clone = orig_sys_call_table[SYS_clone];
+	my_sys_call_table[SYS_vfork] = (long)new_vfork;
+	old_vfork = orig_sys_call_table[SYS_vfork];
+	
 	return 0;
 }
 
@@ -2552,86 +1877,10 @@ void cleanup_module(void)
 	dlistNode *tmpDlistNode;
 	fileAttr *tmpFileAttr;
 		
-	// restore the original syscalls
-	my_sys_call_table[SYS_fork] = (unsigned int)old_fork;
-	my_sys_call_table[SYS_clone] = (unsigned int)old_clone;
-	my_sys_call_table[SYS_vfork] = (unsigned int)old_vfork;
-	my_sys_call_table[SYS_setregid] = (unsigned int)old_setregid;
-	my_sys_call_table[SYS_setgid] = (unsigned int)old_setgid;
-	my_sys_call_table[SYS_setreuid] = (unsigned int)old_setreuid;
-	my_sys_call_table[SYS_setuid] = (unsigned int)old_setuid;
-	my_sys_call_table[SYS_setresuid] = (unsigned int)old_setresuid;
-	my_sys_call_table[SYS_setresgid] = (unsigned int)old_setresgid;
-	my_sys_call_table[SYS_setfsgid] = (unsigned int)old_setfsgid;
-	my_sys_call_table[SYS_setfsuid] = (unsigned int)old_setfsuid;
-	my_sys_call_table[SYS_setregid32] = (unsigned int)old_setregid32;
-	my_sys_call_table[SYS_setgid32] = (unsigned int)old_setgid32;
-	my_sys_call_table[SYS_setreuid32] = (unsigned int)old_setreuid32;
-	my_sys_call_table[SYS_setuid32] = (unsigned int)old_setuid32;
-	my_sys_call_table[SYS_setresuid32] = (unsigned int)old_setresuid32;
-	my_sys_call_table[SYS_setresgid32] = (unsigned int)old_setresgid32;
-	my_sys_call_table[SYS_setfsgid32] = (unsigned int)old_setfsgid32;
-	my_sys_call_table[SYS_setfsuid32] = (unsigned int)old_setfsuid32;
-	my_sys_call_table[SYS_create_module] = (unsigned int)old_create_module;
-	my_sys_call_table[SYS_init_module] = (unsigned int)old_init_module;
-	my_sys_call_table[SYS_delete_module] = (unsigned int)old_delete_module;
-	my_sys_call_table[SYS_mount] = (unsigned int)old_mount;
-	my_sys_call_table[SYS_umount] = (unsigned int)old_umount;
-	my_sys_call_table[SYS_exit] = (unsigned int)old_exit;
-	my_sys_call_table[SYS_open] = (unsigned int)old_open;
-	// my_sys_call_table[SYS_connect] = (unsigned int)old_connect;
-	my_sys_call_table[SYS_link] = (unsigned int)old_link;
-	my_sys_call_table[SYS_symlink] = (unsigned int)old_symlink;
-	my_sys_call_table[SYS_unlink] = (unsigned int)old_unlink;
-	my_sys_call_table[SYS_stime] = (unsigned int)old_stime;
-	my_sys_call_table[SYS_settimeofday] = (unsigned int)old_settimeofday;
-	my_sys_call_table[SYS_adjtimex] = (unsigned int)old_adjtimex;
-	my_sys_call_table[SYS_reboot] = (unsigned int)old_reboot;
-	my_sys_call_table[SYS_ioperm] = (unsigned int)old_ioperm;
-	my_sys_call_table[SYS_iopl] = (unsigned int)old_iopl;
-	my_sys_call_table[SYS_ptrace] = (unsigned int)old_ptrace;
-	my_sys_call_table[SYS_execve] = (unsigned int)old_execve;
-	my_sys_call_table[SYS_quotactl] = (unsigned int)old_quotactl;
-	my_sys_call_table[SYS_mknod] = (unsigned int)old_mknod;
-	my_sys_call_table[SYS_rmdir] = (unsigned int)old_rmdir;
-	my_sys_call_table[SYS_rename] = (unsigned int)old_rename;
-	my_sys_call_table[SYS_uselib] = (unsigned int)old_uselib;
-	my_sys_call_table[SYS_truncate] = (unsigned int)old_truncate;
-	my_sys_call_table[SYS_truncate64] = (unsigned int)old_truncate64;
-	my_sys_call_table[SYS_utime] = (unsigned int)old_utime;
-	//my_sys_call_table[SYS_utimes] = (unsigned int)old_utimes;
-	my_sys_call_table[SYS_chdir] = (unsigned int)old_chdir;
-	my_sys_call_table[SYS_chroot] = (unsigned int)old_chroot;
-	my_sys_call_table[SYS_chmod] = (unsigned int)old_chmod;
-	my_sys_call_table[SYS_fchmod] = (unsigned int)old_fchmod;
-	my_sys_call_table[SYS_chown] = (unsigned int)old_chown;
-	my_sys_call_table[SYS_fchown] = (unsigned int)old_fchown;
-	my_sys_call_table[SYS_lchown] = (unsigned int)old_lchown;
-	my_sys_call_table[SYS_swapoff] = (unsigned int)old_swapoff;
-	my_sys_call_table[SYS_swapon] = (unsigned int)old_swapon;
-	my_sys_call_table[SYS_syslog] = (unsigned int)old_syslog;
-	my_sys_call_table[SYS_creat] = (unsigned int)old_creat;
-	my_sys_call_table[SYS_mkdir] = (unsigned int)old_mkdir;
-	my_sys_call_table[SYS_acct] = (unsigned int)old_acct;
-	my_sys_call_table[SYS_setrlimit] = (unsigned int)old_setrlimit;
-	// my_sys_call_table[SYS_bind] = (unsigned int)old_bind;
-	my_sys_call_table[SYS_nfsservctl] = (unsigned int)old_nfsservctl;
-	my_sys_call_table[SYS_pivot_root] = (unsigned int)old_pivot_root;
-	my_sys_call_table[SYS_ioctl] = (unsigned int)old_ioctl;
-	my_sys_call_table[SYS_setpriority] = (unsigned int)old_setpriority;
-	my_sys_call_table[SYS_setpgid] = (unsigned int)old_setpgid;
-	my_sys_call_table[SYS_setgroups] = (unsigned int)old_setgroups;
-	//my_sys_call_table[SYS_newuname] = (unsigned int)old_newuname;
-	my_sys_call_table[SYS_sethostname] = (unsigned int)old_sethostname;
-	my_sys_call_table[SYS_setdomainname] = (unsigned int)old_setdomainname;
-	my_sys_call_table[SYS_nice] = (unsigned int)old_nice;
-	//my_sys_call_table[SYS_sysctl] = (unsigned int)old_sysctl;
-	//my_sys_call_table[SYS_pciconfig_write] = (unsigned int)old_pciconfig_write;
-	my_sys_call_table[SYS_kill] = (unsigned int)old_kill;
-	// my_sys_call_table[SYS_fchdir] = (unsigned int)old_fchdir;
-	my_sys_call_table[SYS_socketcall] = (unsigned int)old_socketcall;
 
-	// unregister the driver 
+	// restore the original syscalls
+	restoreSysCallTable(orig_sys_call_table, my_sys_call_table);
+	kfree(orig_sys_call_table);
 
 	// unregister the driver 
 	unregister_chrdev(40, "westsides");
